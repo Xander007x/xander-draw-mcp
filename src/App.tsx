@@ -16,6 +16,8 @@ export default function App() {
   const [excalidrawAPI, setExcalidrawAPI] =
     useState<ExcalidrawImperativeAPI | null>(null);
   const isRemoteUpdate = useRef(false);
+  const hasReceivedInit = useRef(false);
+  const sendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Connect to the MCP ingest server via WebSocket
   const { status, lastMessage, sendMessage } = useWebSocket(
@@ -44,6 +46,11 @@ export default function App() {
           },
         });
 
+        // Mark that we've received the initial scene — don't send updates until this happens
+        if (msg.type === "scene:init") {
+          hasReceivedInit.current = true;
+        }
+
         // On initial load, auto-fit all elements into view
         if (msg.type === "scene:init" && (msg.payload.elements || []).length > 0) {
           setTimeout(() => {
@@ -54,30 +61,37 @@ export default function App() {
           }, 50);
         }
 
-        // Brief delay to avoid echo
+        // Keep the guard up long enough for Excalidraw to finish all its onChange calls
+        // after a scene update (React reconciliation can trigger multiple onChange events)
         setTimeout(() => {
           isRemoteUpdate.current = false;
-        }, 100);
+        }, 500);
       }
     } catch (err) {
       console.error("[App] Failed to process WebSocket message:", err);
     }
   }, [excalidrawAPI, lastMessage]);
 
-  // Send local changes back to the server
+  // Send local changes back to the server (debounced to prevent echo storms)
   const handleChange = useCallback(
     (elements: readonly ExcalidrawElement[]) => {
+      // Don't send updates during remote scene application
       if (isRemoteUpdate.current) return;
+      // Don't send until we've received the initial scene from the server
+      if (!hasReceivedInit.current) return;
       if (status !== "connected") return;
 
-      // Debounced send — only send non-deleted elements
-      const activeElements = elements.filter((el) => !el.isDeleted);
-      sendMessage(
-        JSON.stringify({
-          type: "scene:update",
-          payload: { elements: activeElements },
-        })
-      );
+      // Debounce: wait 300ms after the last change before sending
+      if (sendTimer.current) clearTimeout(sendTimer.current);
+      sendTimer.current = setTimeout(() => {
+        const activeElements = elements.filter((el) => !el.isDeleted);
+        sendMessage(
+          JSON.stringify({
+            type: "scene:update",
+            payload: { elements: activeElements },
+          })
+        );
+      }, 300);
     },
     [status, sendMessage]
   );
