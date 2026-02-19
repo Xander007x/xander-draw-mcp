@@ -31,9 +31,29 @@ export default function App() {
 
       if (msg.type === "scene:init" || msg.type === "scene:update") {
         isRemoteUpdate.current = true;
+
+        // Preserve current viewport (scroll position + zoom) during remote updates
+        // Without this, updateScene resets the view and elements "disappear" on scroll
+        const appState = excalidrawAPI.getAppState();
         excalidrawAPI.updateScene({
           elements: msg.payload.elements || [],
+          appState: {
+            scrollX: appState.scrollX,
+            scrollY: appState.scrollY,
+            zoom: appState.zoom,
+          },
         });
+
+        // On initial load, auto-fit all elements into view
+        if (msg.type === "scene:init" && (msg.payload.elements || []).length > 0) {
+          setTimeout(() => {
+            excalidrawAPI.scrollToContent(undefined, {
+              fitToViewport: true,
+              viewportZoomFactor: 0.9,
+            });
+          }, 50);
+        }
+
         // Brief delay to avoid echo
         setTimeout(() => {
           isRemoteUpdate.current = false;
