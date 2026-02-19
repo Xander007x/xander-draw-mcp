@@ -13,10 +13,16 @@ Machine 1 (Orchestrator, RTX 5090)
   └── orchestrator/server.js (stdio → VS Code)
        ├── think, code, analyze, discuss, consensus...
        ├── draw         → POST shapes/Mermaid to Machine 3 :3200
-       ├── visualize    → LLM generates Mermaid → draw
+       ├── visualize    → qwen2.5-coder:7b generates Mermaid → draw
+       ├── describe_image → Machine 2 (llama3.2-vision:11b) interprets image
+       ├── image_to_diagram → Machine 2 vision → Mermaid → draw (photo → diagram)
        ├── draw_clear   → Clear the canvas
        ├── draw_export  → Export scene JSON
        └── draw_status  → Health check
+
+Machine 2 (Windows, 192.168.1.6, RTX 3090 Ti 24GB)
+  └── llama3.2-vision:11b — Vision model for image interpretation
+       └── describe_image, image_to_diagram (runs independently of Machine 1)
 
 Machine 3 (Ubuntu, 192.168.1.35)
   ├── machine3/server.js    (port 3100) — LLM MCP worker (existing)
