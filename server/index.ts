@@ -45,6 +45,10 @@ let currentScene: {
 
 const clients = new Set<WebSocket>();
 
+// Track when each client received scene:init — ignore their updates briefly after
+const clientInitTime = new Map<WebSocket, number>();
+const INIT_GRACE_PERIOD_MS = 2_000; // ignore client updates for 2s after scene:init
+
 wss.on("connection", (ws) => {
   console.log("[WS] Client connected");
   clients.add(ws);
@@ -57,12 +61,29 @@ wss.on("connection", (ws) => {
     })
   );
 
+  // Mark when this client received init — ignore their updates during grace period
+  clientInitTime.set(ws, Date.now());
+
   ws.on("message", (data) => {
     try {
       const msg = JSON.parse(data.toString());
 
       // Client can push scene updates back (e.g., user drew something manually)
       if (msg.type === "scene:update") {
+        // Ignore updates from clients still in their init grace period
+        const initTime = clientInitTime.get(ws);
+        if (initTime && Date.now() - initTime < INIT_GRACE_PERIOD_MS) {
+          console.log("[WS] Ignoring client update during init grace period");
+          return;
+        }
+
+        // Protect against empty updates that would wipe a populated scene
+        const incomingElements = msg.payload?.elements || [];
+        if (incomingElements.length === 0 && currentScene.elements.length > 0) {
+          console.log("[WS] Rejected empty scene:update (would wipe " + currentScene.elements.length + " elements). Use /api/clear instead.");
+          return;
+        }
+
         currentScene = msg.payload;
         // Broadcast to other clients
         broadcast({ type: "scene:update", payload: currentScene }, ws);
@@ -75,6 +96,7 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     console.log("[WS] Client disconnected");
     clients.delete(ws);
+    clientInitTime.delete(ws);
   });
 });
 
